@@ -1,0 +1,30 @@
+{
+  "name": "govtrace-api",
+  "version": "1.0.0",
+  "description": "API do GovTrace: auditoria continua de despesas publicas (TCE-SP)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Pedro6Stein/Govtrace-Api.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/Pedro6Stein/Govtrace-Api/issues"
+  },
+  "homepage": "https://github.com/Pedro6Stein/Govtrace-Api#readme",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "axios": "^1.20.0",
+    "cors": "^2.8.6",
+    "express": "^5.2.1"
+  }
+}
