@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 
 import rotaStatus from './rotas/status.js';
+import rotaAnalise from './rotas/analise.js';
 
 /**
  * Configuração da aplicação Express (sem abrir porta).
@@ -22,6 +23,7 @@ app.use(cors({ origin: origensPermitidas }));
 app.use(express.json());
 
 app.use('/api/status', rotaStatus);
+app.use('/api/analise', rotaAnalise);
 
 // 404 padronizado em JSON para qualquer rota inexistente
 app.use((req, res) => {
