@@ -368,7 +368,7 @@ Tem interesse em **parceria institucional** (universidades, observatórios socia
 | **Enzo Corcetti** | Desenvolvedor |
 | **Lucas Policene** | Desenvolvedor |
 
-**Orientador:** Prof. Clyton José da Rosa
+**Orientador:** Prof. Clayton José da Rosa
 **Instituição:** FATEC Bragança Paulista, curso de Gestão da Tecnologia da Informação
 
 ## 📄 Licença
