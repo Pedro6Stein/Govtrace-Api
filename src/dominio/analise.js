@@ -1,4 +1,5 @@
 import { categorizarDespesa } from './regrasCategorias.js';
+import { calcularPercentual } from './numeros.js';
 
 /**
  * GOVTRACE - MOTOR DE ANÁLISE TÉCNICA E ESTATÍSTICA
@@ -89,7 +90,7 @@ import { ENTIDADES_IGNORADAS, PARAMETROS_ANALISE, IDS_BANCOS_GOVERNO, NOMES_IGNO
   
     const top5 = ranking.slice(0, 5);
     const somaTop5 = top5.reduce((acc, fornecedor) => acc + fornecedor.valorTotal, 0);
-    const percentual = (somaTop5 / valorTotalGeral) * 100;
+    const percentual = calcularPercentual(somaTop5, valorTotalGeral);
     
     // Formatação didática para crianças/leigos: "De cada 100 reais, X foram para os top 5"
     const reaisApenasTop5 = Math.round(percentual);
@@ -99,7 +100,7 @@ import { ENTIDADES_IGNORADAS, PARAMETROS_ANALISE, IDS_BANCOS_GOVERNO, NOMES_IGNO
   
     return {
       alerta,
-      percentual: percentual.toFixed(1),
+      percentual,
       somaTop5,
       mensagemPrincipal: alerta 
         ? `Alta concentração: os 5 maiores fornecedores representam ${percentual.toFixed(1)}% de todo o valor financeiro do período.` 
@@ -134,7 +135,7 @@ export const calcularDistribuicaoPorCategoria = (despesas) => {
     .map(([nome, valor]) => ({
       nome,
       valor,
-      percentual: totalMapeado > 0 ? ((valor / totalMapeado) * 100).toFixed(1) : 0
+      percentual: calcularPercentual(valor, totalMapeado)
     }))
     .sort((a, b) => b.valor - a.valor);
 };

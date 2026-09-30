@@ -6,6 +6,7 @@
 
 import { ENTIDADES_IGNORADAS, PARAMETROS_ANALISE, LEI_BENFORD_IDEAL, IDS_BANCOS_GOVERNO, NOMES_IGNORADOS_PESSOAL } from './configuracoes.js';
 import { categorizarDespesa } from './regrasCategorias.js';
+import { calcularPercentual } from './numeros.js';
 
 // Função auxiliar comum
 const deveIgnorar = (d) => {
@@ -165,7 +166,7 @@ export const detectarMonopolioPorOrgao = (despesas) => {
             departamentosDependentes.push({
               orgao: nomeOrgao,
               empresa: info[`nome_${idEmpresa}`],
-              percentual: monopolio.toFixed(1)
+              percentual: calcularPercentual(valorEmpresa, info.total)
             });
           }
         });

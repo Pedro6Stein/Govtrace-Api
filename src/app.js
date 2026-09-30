@@ -3,6 +3,7 @@ import cors from 'cors';
 
 import rotaStatus from './rotas/status.js';
 import rotaAnalise from './rotas/analise.js';
+import { tratarRotaInexistente, tratarErros } from './middlewares/tratarErros.js';
 
 /**
  * Configuração da aplicação Express (sem abrir porta).
@@ -52,9 +53,8 @@ app.use(express.json());
 app.use('/api/status', rotaStatus);
 app.use('/api/analise', rotaAnalise);
 
-// 404 padronizado em JSON para qualquer rota inexistente
-app.use((req, res) => {
-  res.status(404).json({ erro: 'Rota não encontrada', caminho: req.originalUrl });
-});
+// Sempre por último: 404 e tratamento global de erros (JSON padronizado + log)
+app.use(tratarRotaInexistente);
+app.use(tratarErros);
 
 export default app;

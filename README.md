@@ -185,30 +185,47 @@ curl "https://govtrace-api.onrender.com/api/analise?municipio=Bragan%C3%A7a%20Pa
 ```jsonc
 {
   "parametros":   { "municipio": "Bragança Paulista", "ano": "2026", "mes": "6" },
+  "qualidadeDados": { "registrosRecebidos": 4534, "registrosAnalisados": 4534, "valoresInvalidos": 0 },
   "totais":       { "valorTotal": 292226206.17, "totalRegistros": 4534, "maiorPagamento": { /* ... */ } },
-  "distribuicao": [ { "nome": "Pessoa Física / Autônomo", "valor": 138901956.95, "percentual": "47.5" } ],
+  "distribuicao": [ { "nome": "Pessoa Física / Autônomo", "valor": 138901956.95, "percentual": 47.53 } ],
   "ranking":      [ { "id": "...", "nome": "...", "valorTotal": 20385000.69, "quantidade": 21 } ],
   "insights": {
-    "concentracao":  { "alerta": false, "percentual": "23.0", "top5": [ /* ... */ ], "insightEducativo": "..." },
+    "concentracao":  { "alerta": false, "percentual": 23.02, "top5": [ /* ... */ ], "insightEducativo": "..." },
     "zScore":        { "alerta": true,  "outliers": [ /* 24 registros */ ], "titulo": "...", "insightEducativo": "..." },
     "benford":       { "alerta": false, "digitoSuspeito": null, "insightEducativo": "..." },
     "fracionamento": { "alerta": true,  "anomalias": [ { "nome": "...", "valor": 992.5, "repeticoes": 7 } ] },
-    "monopolio":     { "alerta": true,  "departamentosDependentes": [ { "orgao": "...", "empresa": "...", "percentual": "93.3" } ] }
+    "monopolio":     { "alerta": true,  "departamentosDependentes": [ { "orgao": "...", "empresa": "...", "percentual": 93.31 } ] }
   },
   "despesas": [ /* registros normalizados, usados para rastreabilidade */ ]
 }
 ```
 
-Períodos sem dados publicados retornam `200` com listas vazias e `insights: null`.
+- **Percentuais são `number`**: 2 casas decimais a partir de 1%, e 2 algarismos significativos abaixo disso. Uma área com R$ 47 mil em um orçamento de R$ 2,3 bi retorna `0.0021`, e não `0`.
+- **`qualidadeDados.valoresInvalidos`** conta os valores monetários do TCE-SP que não puderam ser interpretados. Eles entram como R$ 0,00 no cálculo e geram um aviso no log.
+- Períodos sem dados publicados retornam `200` com listas vazias e `insights: null`.
 
-**Erros** (sempre em JSON):
+**Erros:** todas as falhas passam por um middleware global e seguem o mesmo formato:
 
-| Status | Quando |
-|---|---|
-| `400` | Parâmetro ausente ou inválido, por exemplo `{ "erro": "Parâmetro \"mes\" deve ser um número de 1 a 12." }` |
-| `404` | Rota inexistente |
-| `502` | O TCE-SP está fora do ar ou retornou erro |
-| `504` | O TCE-SP não respondeu em 30 s |
+```json
+{
+  "erro": "O TCE-SP não respondeu em 30 segundos. Tente novamente em instantes.",
+  "status": 504,
+  "codigo": "TCE_TIMEOUT",
+  "idErro": "61dcba2c",
+  "detalhes": { "urlTce": "https://transparencia.tce.sp.gov.br/...", "codigoRede": "ECONNABORTED", "statusTce": null },
+  "timestamp": "2026-09-30T06:42:58.243Z"
+}
+```
+
+| Status | `codigo` | Quando |
+|---|---|---|
+| `400` | `PARAMETRO_INVALIDO` | Parâmetro ausente ou inválido (`detalhes.parametro` indica qual) |
+| `404` | `ROTA_INEXISTENTE` | Rota inexistente |
+| `502` | `TCE_ERRO_HTTP` | O TCE-SP respondeu com erro HTTP (`detalhes.statusTce`) |
+| `502` | `TCE_INDISPONIVEL` | Falha de rede: DNS, conexão recusada ou derrubada |
+| `502` | `TCE_FORMATO_INESPERADO` | O TCE-SP devolveu algo que não é uma lista de despesas |
+| `504` | `TCE_TIMEOUT` | O TCE-SP não respondeu em 30 s |
+| `500` | `ERRO_INTERNO` | Bug inesperado. Em produção, a mensagem é genérica e o `idErro` localiza o log completo (com stack trace) no Render |
 
 ## 🛡️ CORS resiliente
 
@@ -266,6 +283,7 @@ Teste: http://localhost:3333/api/status
 | Variável | Descrição | Padrão |
 |---|---|---|
 | `PORT` | Porta HTTP (o Render injeta automaticamente) | `3333` |
+| `NODE_ENV` | Com `production`, erros 500 não expõem a mensagem interna ao público | — |
 | `CORS_ORIGIN` | Origens autorizadas, separadas por vírgula | `http://localhost:5173` |
 
 ```env

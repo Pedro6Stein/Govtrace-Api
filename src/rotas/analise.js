@@ -1,5 +1,6 @@
 import { Router } from 'express';
 
+import { ErroApi } from '../erros/ErroApi.js';
 import { buscarDespesasTce } from '../servicos/tce.js';
 import { normalizarDespesas } from '../dominio/normalizacao.js';
 import { executarAuditoria } from '../dominio/auditoria.js';
@@ -9,49 +10,56 @@ import { executarAuditoria } from '../dominio/auditoria.js';
  *
  * Busca as despesas no TCE-SP, normaliza, roda todos os motores e devolve
  * um JSON pronto para a camada de apresentação.
+ *
+ * Sem try/catch: o Express 5 encaminha erros de rotas async ao middleware
+ * global (src/middlewares/tratarErros.js), que registra e responde.
  */
 const router = Router();
 
-// Valida os parâmetros; retorna uma mensagem de erro ou null
+// Lança ErroApi 400 com o parâmetro exato que está errado
 const validarParametros = ({ municipio, ano, mes }) => {
-  if (!municipio?.trim()) return 'Parâmetro "municipio" é obrigatório.';
-  if (!/^\d{4}$/.test(ano ?? '')) return 'Parâmetro "ano" deve ter 4 dígitos (ex: 2026).';
-  const numMes = Number(mes);
-  if (!Number.isInteger(numMes) || numMes < 1 || numMes > 12) {
-    return 'Parâmetro "mes" deve ser um número de 1 a 12.';
+  const invalido = (parametro, mensagem) => {
+    throw new ErroApi(400, 'PARAMETRO_INVALIDO', mensagem, { detalhes: { parametro } });
+  };
+
+  // typeof: "?municipio=a&municipio=b" chega como array
+  if (typeof municipio !== 'string' || !municipio.trim()) {
+    invalido('municipio', 'Parâmetro "municipio" é obrigatório (ex: Bragança Paulista).');
   }
-  return null;
+  if (typeof ano !== 'string' || !/^\d{4}$/.test(ano)) {
+    invalido('ano', 'Parâmetro "ano" deve ter 4 dígitos (ex: 2026).');
+  }
+  const numMes = Number(mes);
+  if (typeof mes !== 'string' || !Number.isInteger(numMes) || numMes < 1 || numMes > 12) {
+    invalido('mes', 'Parâmetro "mes" deve ser um número de 1 a 12.');
+  }
 };
 
 router.get('/', async (req, res) => {
-  const erroValidacao = validarParametros(req.query);
-  if (erroValidacao) return res.status(400).json({ erro: erroValidacao });
+  validarParametros(req.query);
 
   const municipio = req.query.municipio.trim();
   const ano = req.query.ano;
   const mes = String(Number(req.query.mes)); // "06" → "6"
 
-  let dadosBrutos;
-  try {
-    dadosBrutos = await buscarDespesasTce(municipio, ano, mes);
-  } catch (erro) {
-    // Falha na fonte externa: 504 se estourou o tempo, 502 para os demais casos
-    const timeout = erro.code === 'ECONNABORTED' || erro.code === 'ETIMEDOUT';
-    console.error(`[analise] Falha no TCE-SP (${municipio}/${ano}/${mes}):`, erro.message);
-    return res.status(timeout ? 504 : 502).json({
-      erro: timeout
-        ? 'O TCE-SP demorou demais para responder. Tente novamente.'
-        : 'Não foi possível consultar o TCE-SP no momento.',
-      statusTce: erro.response?.status ?? null,
-    });
-  }
+  const dadosBrutos = await buscarDespesasTce(municipio, ano, mes);
+  const { despesas, valoresInvalidos } = normalizarDespesas(dadosBrutos);
 
-  const despesas = normalizarDespesas(dadosBrutos);
-  const resultado = executarAuditoria(despesas);
+  if (valoresInvalidos > 0) {
+    console.warn(
+      `⚠ [${new Date().toISOString()}] ${valoresInvalidos} valor(es) monetário(s) ilegível(is) do TCE-SP ` +
+      `em ${municipio}/${ano}/${mes} — contabilizados como R$ 0,00`,
+    );
+  }
 
   res.json({
     parametros: { municipio, ano, mes },
-    ...resultado,
+    qualidadeDados: {
+      registrosRecebidos: dadosBrutos.length,
+      registrosAnalisados: despesas.length,
+      valoresInvalidos,
+    },
+    ...executarAuditoria(despesas),
     despesas,
   });
 });
