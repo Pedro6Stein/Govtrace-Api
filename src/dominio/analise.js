@@ -4,7 +4,7 @@ import { calcularPercentual } from './numeros.js';
 /**
  * GOVTRACE - MOTOR DE ANÁLISE TÉCNICA E ESTATÍSTICA
  * Equipe: Enzo Corcetti, Lucas Policene, Pedro Stein
- * Orientador: Prof. Clayton José da Rosa
+ * Orientadores: Prof. Carlos Augusto Gomes e Profa. Viviane Ramalho de Azevedo
  * 
  * Propósito: Transformar dados públicos brutos em informação e conhecimento cidadão.
  * Princípio: O algoritmo não julga a legalidade do gasto. Ele aplica cálculos 
