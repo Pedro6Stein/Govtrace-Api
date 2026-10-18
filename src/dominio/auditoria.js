@@ -47,7 +47,12 @@ const INSIGHTS_PADRAO = {
   },
 };
 
-export const executarAuditoria = (despesas) => {
+/**
+ * @param {Array}  despesas  despesas normalizadas
+ * @param {object} [contexto] { categoriasPorCnpj: Map<cnpj, categoria IBGE> }
+ *                            — vazio = 100% Regex (comportamento anterior)
+ */
+export const executarAuditoria = (despesas, { categoriasPorCnpj = new Map() } = {}) => {
   if (!despesas.length) {
     return {
       totais: { valorTotal: 0, totalRegistros: 0 },
@@ -58,7 +63,7 @@ export const executarAuditoria = (despesas) => {
   }
 
   const totais = calcularTotaisGerais(despesas);
-  const distribuicao = calcularDistribuicaoPorCategoria(despesas);
+  const distribuicao = calcularDistribuicaoPorCategoria(despesas, categoriasPorCnpj);
   const ranking = gerarRankingFornecedores(despesas);
 
   const insights = {

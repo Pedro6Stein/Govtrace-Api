@@ -27,6 +27,7 @@
 - [Visão e propósito](#-visão-e-propósito)
 - [Arquitetura](#-arquitetura)
 - [Motores de auditoria](#-motores-de-auditoria)
+- [Classificação oficial por CNAE](#-classificação-oficial-por-cnae)
 - [Motor de categorização via Regex](#-motor-de-categorização-via-regex)
 - [Performance](#-performance)
 - [Endpoints](#-endpoints)
@@ -68,8 +69,10 @@ flowchart TB
 
     subgraph API[GovTrace API · Render]
       direction TB
-      R[rotas/<br/>HTTP: validação, erros, resposta] --> S[servicos/<br/>Infra: cliente axios do TCE-SP]
+      R[rotas/<br/>HTTP: validação, erros, resposta] --> S[servicos/tce<br/>Infra: cliente axios do TCE-SP]
       R --> N[dominio/normalizacao<br/>ETL do JSON bruto]
+      R --> CI[dominio/classificadorInteligente<br/>CNPJ → CNAE → divisão IBGE]
+      CI -. serviços injetados .-> EX[servicos/apisExternas<br/>Cache · limitador · disjuntor]
       R --> O[dominio/auditoria<br/>Orquestrador puro]
       O --> M1[analise.js<br/>Totais · Ranking · CR5 · Distribuição]
       O --> M2[analiseAvancada.js<br/>Z-Score · Benford · Fracionamento · Monopólio]
@@ -78,6 +81,8 @@ flowchart TB
     end
 
     S -->|HTTPS| TCE[(API de Transparência<br/>TCE-SP)]
+    EX -->|HTTPS| BR[(BrasilAPI<br/>CNPJ · Receita Federal)]
+    EX -->|HTTPS| IB[(IBGE<br/>CNAE)]
 ```
 
 **Arquitetura em camadas:**
@@ -131,9 +136,32 @@ Participação dos **5 maiores fornecedores** no total do período, um índice c
 - **Alerta:** CR5 **acima de 30%**.
 - **Saída didática:** "De cada R$ 100, R$ X foram para apenas 5 empresas".
 
+## 🏛️ Classificação oficial por CNAE
+
+Para responder "para onde foi o dinheiro?", a API classifica cada fornecedor pela **atividade econômica oficial**: o CNPJ é consultado na Receita Federal (via [BrasilAPI](https://brasilapi.com.br/)), o CNAE fiscal é reduzido à **divisão** (2 primeiros dígitos) e o nome da divisão vem da [API de CNAE do IBGE](https://servicodados.ibge.gov.br/api/docs/cnae).
+
+```
+CNPJ 08.183.516/0001-20 → CNAE 4744-0/99 → divisão 47 → "Comércio varejista"
+```
+
+Pessoas físicas, CNPJs sem resposta e despesas sem documento caem no **motor Regex** (abaixo) como fallback. Cada categoria da resposta informa a sua `origem`: `"cnae"` (oficial) ou `"estimativa"` (Regex).
+
+**Engenharia para não depender de serviços gratuitos:**
+
+| Mecanismo | Por quê |
+|---|---|
+| **Prioridade por valor** | 19 CNPJs cobrem 80% do dinheiro de Bragança; 189 cobrem 99%. Consultar em ordem de valor maximiza a cobertura no tempo disponível. |
+| **Prazo de 8 s** (`Promise.race`) | A análise devolve o que ficou pronto; o restante segue em segundo plano aquecendo o cache. |
+| **Cache em memória + voo único** | Um CNPJ ou divisão nunca é consultado duas vezes; requisições simultâneas compartilham a mesma promessa. |
+| **Limitador global** (8 BrasilAPI / 4 IBGE) | Evita rajadas: 2 mil CNPJs de Campinas não viram 2 mil requisições simultâneas. |
+| **Disjuntor para HTTP 429** | A BrasilAPI limita ~100 consultas/minuto. Ao atingir o limite, a API para de consultar por 60 s em vez de insistir e prolongar o bloqueio. |
+| **Erro definitivo × transitório** | "CNPJ não existe" (404) é cacheado; timeout/429/5xx não, para tentar de novo depois. |
+
+O classificador fica no domínio e recebe os serviços por **injeção de dependência**, então é testado com dublês, sem rede.
+
 ## 🧠 Motor de categorização via Regex
 
-Para responder "para onde foi o dinheiro?", cada despesa é classificada em uma de **10 áreas sociais** (Saúde, Educação, Infraestrutura, Transporte, Tecnologia, Alimentação, Cultura e Esporte, Máquina Pública, Administração, Pessoa Física) a partir do nome do órgão e do fornecedor.
+Fallback da classificação oficial: cada despesa sem CNAE é classificada em uma de **10 áreas sociais** (Saúde, Educação, Infraestrutura, Transporte, Tecnologia, Alimentação, Cultura e Esporte, Máquina Pública, Administração, Pessoa Física) a partir do nome do órgão e do fornecedor.
 
 A primeira versão usava **Stemmer + distância de Levenshtein**, que era preciso mas caro e bloqueava a *main thread* do navegador. O motor atual foi reescrito com três técnicas:
 
@@ -141,7 +169,7 @@ A primeira versão usava **Stemmer + distância de Levenshtein**, que era precis
 2. **Normalização barata:** remoção de acentos (NFD), caixa alta e remoção de pontuação antes do *match*.
 3. **Memoization com `Map`:** o TCE-SP repete os mesmos fornecedores milhares de vezes. Cada combinação órgão + fornecedor é categorizada **uma única vez**, e as repetições seguintes são respondidas em **O(1)**.
 
-Antes das regras temáticas, uma heurística rápida identifica **Pessoa Física** (CPF com 11 dígitos ou nome próprio sem sufixos societários como LTDA, ME ou EIRELI).
+Antes das regras temáticas, uma heurística rápida identifica **Pessoa Física**: CPF (11 dígitos) é pessoa física e CNPJ (14 dígitos) nunca é. Só sem documento entra a análise do nome (nome próprio sem sufixos societários como LTDA, ME ou EIRELI).
 
 ## 🚀 Performance
 
@@ -154,6 +182,8 @@ Medido com dados reais de **Bragança Paulista, junho/2026** (Node.js 24, execu�
 | Categorização com memoization (cache quente) | **~7,6 ms** |
 | **Auditoria completa** (8 motores, mediana de 10 execuções) | **~59 ms** |
 | Tempo total da requisição (incluindo o TCE-SP) | **~2 s**, dominado pela rede do TCE-SP |
+| Classificação oficial, 1ª consulta do município | **~2,2 s**, 96,9% do valor classificado por CNAE |
+| Classificação oficial, consultas seguintes (cache) | **~20 ms** |
 
 Todos os motores são **lineares, O(n)**: percorrem as despesas com `Map`s de agregação, sem laços aninhados sobre o conjunto de dados.
 
@@ -185,9 +215,13 @@ curl "https://govtrace-api.onrender.com/api/analise?municipio=Bragan%C3%A7a%20Pa
 ```jsonc
 {
   "parametros":   { "municipio": "Bragança Paulista", "ano": "2026", "mes": "6" },
-  "qualidadeDados": { "registrosRecebidos": 4534, "registrosAnalisados": 4534, "valoresInvalidos": 0 },
+  "qualidadeDados": {
+    "registrosRecebidos": 4534, "registrosAnalisados": 4534, "valoresInvalidos": 0,
+    "classificacao": { "cnpjsUnicos": 482, "cnpjsConsultados": 300, "cnpjsClassificados": 100,
+                       "percentualValorClassificado": 96.91, "concluiuNoPrazo": true, "tempoMs": 2189 }
+  },
   "totais":       { "valorTotal": 292226206.17, "totalRegistros": 4534, "maiorPagamento": { /* ... */ } },
-  "distribuicao": [ { "nome": "Pessoa Física / Autônomo", "valor": 138901956.95, "percentual": 47.53 } ],
+  "distribuicao": [ { "nome": "Administração pública, defesa e seguridade social", "valor": 116678839.01, "percentual": 39.93, "origem": "cnae" } ],
   "ranking":      [ { "id": "...", "nome": "...", "valorTotal": 20385000.69, "quantidade": 21 } ],
   "insights": {
     "concentracao":  { "alerta": false, "percentual": 23.02, "top5": [ /* ... */ ], "insightEducativo": "..." },
@@ -303,16 +337,23 @@ CORS_ORIGIN=https://gov-trace.vercel.app,http://localhost:5173
 Govtrace-Api/
 ├── server.js                  # Bootstrap: lê a PORT e sobe o servidor
 └── src/
-    ├── app.js                 # Express: CORS, JSON, rotas, 404
+    ├── app.js                 # Express: CORS, JSON, rotas, tratamento de erros
     ├── rotas/
     │   ├── status.js          # GET /api/status
     │   └── analise.js         # GET /api/analise
-    ├── servicos/
-    │   └── tce.js             # Cliente axios do TCE-SP
+    ├── middlewares/
+    │   └── tratarErros.js     # 404 + erro global (JSON padronizado e log)
+    ├── erros/
+    │   └── ErroApi.js         # Erro operacional com status e código
+    ├── servicos/              # Infraestrutura (I/O)
+    │   ├── tce.js             # Cliente axios do TCE-SP
+    │   └── apisExternas.js    # BrasilAPI + IBGE: cache, limitador, disjuntor
     └── dominio/               # Regras de negócio puras (sem I/O)
         ├── configuracoes.js   # Parâmetros dos motores e listas de exclusão
+        ├── numeros.js         # Moeda brasileira e percentuais
         ├── normalizacao.js    # ETL do JSON bruto do TCE-SP
-        ├── regrasCategorias.js# Categorização via Regex + Memoization
+        ├── classificadorInteligente.js # CNPJ → CNAE → categoria IBGE (com prazo)
+        ├── regrasCategorias.js# Fallback: categorização via Regex + Memoization
         ├── analise.js         # Totais, ranking, CR5, distribuição
         ├── analiseAvancada.js # Z-Score, Benford, Fracionamento, Monopólio
         └── auditoria.js       # Orquestrador dos motores
@@ -335,7 +376,8 @@ Govtrace-Api/
 - [x] CORS resiliente para ambientes de nuvem
 - [ ] Cache de respostas do TCE-SP (em memória ou Redis) para reduzir latência e carga na fonte
 - [ ] Compressão gzip/brotli das respostas (o payload típico tem cerca de 1 MB)
-- [ ] Cache de categorização com limite (LRU) para uso contínuo em produção
+- [x] Classificação oficial por CNAE (Receita Federal + IBGE) com fallback Regex
+- [ ] Cache persistente (Redis/banco) para a classificação sobreviver a reinícios do servidor
 - [ ] Testes automatizados dos motores (unitários) e das rotas (integração)
 - [ ] Documentação OpenAPI/Swagger
 - [ ] Novos motores: sazonalidade, fornecedores recém-criados, análise temporal multi-mês

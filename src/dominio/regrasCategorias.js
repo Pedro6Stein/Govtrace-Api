@@ -65,8 +65,9 @@ const limparString = (str) => {
 };
 
 const ehPessoaFisicaRapido = (idLimpo, nomeNorm) => {
-  // CPF tem 11 dígitos
+  // CPF tem 11 dígitos; CNPJ tem 14 — documento manda, o nome é só heurística
   if (idLimpo && idLimpo.length === 11) return true;
+  if (idLimpo && idLimpo.length === 14) return false; // "PREFEITURA MUNICIPAL DE ..." não é pessoa
   // Regex rápido para nome próprio sem indicadores corporativos (LTDA, ME, S/A)
   if (/^[A-Z]{2,}\s[A-Z]{2,}(\s[A-Z]+)*$/.test(nomeNorm) && !/(LTDA|ME|EIRELI|S A|SA|EPP|COMERCIO|SERVICOS)/.test(nomeNorm)) {
     return true;
