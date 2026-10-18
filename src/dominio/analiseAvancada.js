@@ -24,29 +24,41 @@ export const detectarOutliersZScore = (despesas) => {
       .filter(d => !deveIgnorar(d))
       .map(d => d.valor)
       .filter(v => v > 0);
-  
+
     if (valoresValidos.length < 10) return { alerta: false };
-  
+
     const soma = valoresValidos.reduce((acc, val) => acc + val, 0);
     const media = soma / valoresValidos.length;
     const variancia = valoresValidos.reduce((acc, val) => acc + Math.pow(val - media, 2), 0) / valoresValidos.length;
     const desvioPadrao = Math.sqrt(variancia);
-  
+
     const outliers = despesas.filter(d => {
       if (d.valor <= 0 || deveIgnorar(d)) return false;
       const zScore = (d.valor - media) / desvioPadrao;
       return zScore > PARAMETROS_ANALISE.Z_SCORE_LIMITE;
     }).sort((a, b) => b.valor - a.valor);
-  
+
     const alerta = outliers.length > 0;
-  
+
     return {
       alerta,
       outliers,
       titulo: "Gastos Fora do Padrão (Efeito Gigante)",
-      insightEducativo: alerta 
-        ? `Imagine que todos os pagamentos da cidade fossem pessoas normais caminhando na rua. O sistema identificou ${outliers.length} pagamento(s) que seriam equivalentes a gigantes de 5 metros de altura. Estatisticamente, esses valores fogem completamente do comportamento financeiro normal da prefeitura para este mês e merecem ser lidos com atenção.` 
-        : "Todos os pagamentos seguiram o tamanho padrão esperado para a cidade."
+      insightEducativo: alerta
+        ? `Imagine que todos os pagamentos da cidade fossem pessoas normais caminhando na rua. O sistema identificou ${outliers.length} pagamento(s) que seriam equivalentes a gigantes de 5 metros de altura. Estatisticamente, esses valores fogem completamente do comportamento financeiro normal da prefeitura para este mês e merecem ser lidos com atenção.`
+        : "Todos os pagamentos seguiram o tamanho padrão esperado para a cidade.",
+      // "Prova dos 9": os mesmos números já calculados acima, para o front
+      // reconstruir a conta (x − μ) / σ sem duplicar a regra de exclusão da
+      // máquina pública. exemploValor é o maior valor válido do período —
+      // é o próprio outlier de destaque quando há alerta, e o "quase lá"
+      // quando o mês está normal (a prova funciona nos dois casos).
+      estatisticas: {
+        media,
+        desvioPadrao,
+        totalAnalisado: valoresValidos.length,
+        limite: PARAMETROS_ANALISE.Z_SCORE_LIMITE,
+        exemploValor: Math.max(...valoresValidos),
+      },
     };
 };
 
@@ -84,14 +96,30 @@ export const analisarLeiBenford = (despesas) => {
     }
   
     const alerta = digitoSuspeito !== null;
-  
+
+    // "Prova dos 9": frequência observada de cada dígito, lado a lado com a
+    // esperada pela fórmula de Newcomb-Benford — para o front "rodar a conta"
+    // na tela em vez de só anunciar o veredito.
+    const frequencias = [];
+    for (let i = 1; i <= 9; i++) {
+      frequencias.push({
+        digito: i,
+        contagem: contagem[i],
+        percentualObservado: calcularPercentual(contagem[i], totalAnalisado),
+        percentualEsperado: frequenciaIdeal[i],
+      });
+    }
+
     return {
       alerta,
       digitoSuspeito,
       titulo: "Teste de Manipulação de Dados (Lei de Benford)",
       insightEducativo: alerta
         ? `A ciência mostra que registros financeiros reais seguem uma escadinha natural (valores começados em 1 são os mais comuns, depois o 2, etc.). Neste mês, identificamos uma falha nessa matriz: o número ${digitoSuspeito} liderou pagamentos de forma artificial. Isso é um forte indício estatístico, usado por auditores, de que valores podem ter sido fracionados ou tabelados de forma não natural.`
-        : `O comportamento dos números passou no teste científico de integridade. A distribuição dos valores parece orgânica e natural.`
+        : `O comportamento dos números passou no teste científico de integridade. A distribuição dos valores parece orgânica e natural.`,
+      frequencias,
+      totalAnalisado,
+      limiarDesvio: PARAMETROS_ANALISE.BENFORD_DESVIO_ALERTA,
     };
 };
 

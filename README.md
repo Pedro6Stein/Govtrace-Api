@@ -233,8 +233,10 @@ curl "https://govtrace-api.onrender.com/api/analise?municipio=Bragan%C3%A7a%20Pa
   "ranking":      [ { "id": "...", "nome": "...", "valorTotal": 20385000.69, "quantidade": 21 } ],
   "insights": {
     "concentracao":  { "alerta": false, "percentual": 23.02, "top5": [ /* ... */ ], "insightEducativo": "..." },
-    "zScore":        { "alerta": true,  "outliers": [ /* 24 registros */ ], "titulo": "...", "insightEducativo": "..." },
-    "benford":       { "alerta": false, "digitoSuspeito": null, "insightEducativo": "..." },
+    "zScore":        { "alerta": true,  "outliers": [ /* 24 registros */ ], "titulo": "...", "insightEducativo": "...",
+                       "estatisticas": { "media": 68040.17, "desvioPadrao": 309336.06, "totalAnalisado": 2678, "limite": 4, "exemploValor": 5530835.78 } },
+    "benford":       { "alerta": false, "digitoSuspeito": null, "insightEducativo": "...", "totalAnalisado": 2676, "limiarDesvio": 5,
+                       "frequencias": [ { "digito": 1, "contagem": 851, "percentualObservado": 31.8, "percentualEsperado": 30.1 } /* ...até o dígito 9 */ ] },
     "fracionamento": { "alerta": true,  "anomalias": [ { "nome": "...", "valor": 992.5, "repeticoes": 7 } ] },
     "monopolio":     { "alerta": true,  "departamentosDependentes": [ { "orgao": "...", "empresa": "...", "percentual": 93.31 } ] }
   },
@@ -242,6 +244,7 @@ curl "https://govtrace-api.onrender.com/api/analise?municipio=Bragan%C3%A7a%20Pa
 }
 ```
 
+- **`zScore.estatisticas` e `benford.frequencias`** ("Prova dos 9"): os mesmos números que os motores já calculam internamente para decidir o alerta — média, desvio padrão e frequência por dígito —, expostos para o front reconstruir a conta `(x − μ) / σ` e a fórmula de Newcomb-Benford na tela, sem duplicar a regra de exclusão da máquina pública. `exemploValor` é sempre o maior valor válido do período (o próprio outlier de destaque quando há alerta); ambos os campos aparecem mesmo sem alerta, para também demonstrar o caso "dentro do normal".
 - **Percentuais são `number`**: 2 casas decimais a partir de 1%, e 2 algarismos significativos abaixo disso. Uma área com R$ 47 mil em um orçamento de R$ 2,3 bi retorna `0.0021`, e não `0`.
 - **`qualidadeDados.valoresInvalidos`** conta os valores monetários do TCE-SP que não puderam ser interpretados. Eles entram como R$ 0,00 no cálculo e geram um aviso no log.
 - Períodos sem dados publicados retornam `200` com listas vazias e `insights: null`.
@@ -391,7 +394,7 @@ Govtrace-Api/
 - [ ] Compressão gzip/brotli das respostas (o payload típico tem cerca de 1 MB)
 - [x] Classificação oficial por CNAE (Receita Federal + IBGE) com fallback Regex
 - [ ] Cache persistente (Redis/banco) para a classificação sobreviver a reinícios do servidor
-- [x] Testes automatizados do classificador e da tabela CNAE (`npm test`)
+- [x] Testes automatizados do classificador, da tabela CNAE e dos motores Z-Score/Benford (`npm test`)
 - [ ] Testes dos demais motores (unitários) e das rotas (integração)
 - [ ] Documentação OpenAPI/Swagger
 - [ ] Novos motores: sazonalidade, fornecedores recém-criados, análise temporal multi-mês
