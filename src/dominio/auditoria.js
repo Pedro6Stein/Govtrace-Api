@@ -47,7 +47,12 @@ const INSIGHTS_PADRAO = {
   },
 };
 
-export const executarAuditoria = (despesas) => {
+/**
+ * @param {Array}  despesas  despesas normalizadas
+ * @param {object} [contexto] { classificacoesPorCnpj: Map<cnpj, { cnae, divisao, atividade, area }> }
+ *                            — vazio = 100% Regex (comportamento anterior)
+ */
+export const executarAuditoria = (despesas, { classificacoesPorCnpj = new Map() } = {}) => {
   if (!despesas.length) {
     return {
       totais: { valorTotal: 0, totalRegistros: 0 },
@@ -58,8 +63,13 @@ export const executarAuditoria = (despesas) => {
   }
 
   const totais = calcularTotaisGerais(despesas);
-  const distribuicao = calcularDistribuicaoPorCategoria(despesas);
-  const ranking = gerarRankingFornecedores(despesas);
+  const distribuicao = calcularDistribuicaoPorCategoria(despesas, classificacoesPorCnpj);
+
+  // Cada fornecedor carrega sua atividade oficial (CNAE) para auditoria
+  const ranking = gerarRankingFornecedores(despesas).map((fornecedor) => {
+    const classificacao = classificacoesPorCnpj.get(fornecedor.id);
+    return classificacao ? { ...fornecedor, atividade: classificacao } : fornecedor;
+  });
 
   const insights = {
     concentracao:

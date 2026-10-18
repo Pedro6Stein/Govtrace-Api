@@ -31,6 +31,15 @@ export const PARAMETROS_ANALISE = {
   CONCENTRACAO_CR5_ALERTA: 30,     // % de concentração nos top 5 fornecedores
 };
 
+// 2.1 CLASSIFICAÇÃO OFICIAL (CNAE da Receita Federal via BrasilAPI + IBGE)
+// 19 CNPJs cobrem 80% do valor de Bragança Paulista; 189 cobrem 99% (06/2026).
+// Por isso consultamos em ordem de valor e com prazo: o que não couber no
+// prazo cai no Regex e continua sendo resolvido em segundo plano (cache).
+export const PARAMETROS_CLASSIFICACAO = {
+  ORCAMENTO_MS: 8000,             // Tempo máximo que a análise espera pelas APIs externas
+  MAX_CNPJS_POR_ANALISE: 300,     // Teto de CNPJs enfileirados por consulta (os de maior valor)
+};
+
 // 3. EVENTOS CONTÁBEIS E SEMÂNTICA VISUAL (Para a UI)
 export const CONFIG_ESTAGIOS_CONTABEIS = {
   Empenhado: { cor: '#0284C7', fundo: '#E0F2FE', rotulo: 'Empenho' },

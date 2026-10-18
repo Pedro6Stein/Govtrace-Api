@@ -2,8 +2,13 @@ import { Router } from 'express';
 
 import { ErroApi } from '../erros/ErroApi.js';
 import { buscarDespesasTce } from '../servicos/tce.js';
+import { buscarCnaeFiscal, buscarDescricaoDivisaoCnae } from '../servicos/apisExternas.js';
 import { normalizarDespesas } from '../dominio/normalizacao.js';
+import { enriquecerDespesasComCnae } from '../dominio/classificadorInteligente.js';
 import { executarAuditoria } from '../dominio/auditoria.js';
+
+// Adaptadores reais injetados no domínio (nos testes, entram dublês)
+const servicosCnae = { buscarCnaeFiscal, buscarDescricaoDivisaoCnae };
 
 /**
  * GET /api/analise?municipio=Bragança Paulista&ano=2026&mes=6
@@ -52,14 +57,19 @@ router.get('/', async (req, res) => {
     );
   }
 
+  // Classificação oficial (Receita/IBGE) com prazo — nunca lança erro
+  const { classificacoesPorCnpj, estatisticas: classificacao } =
+    await enriquecerDespesasComCnae(despesas, servicosCnae);
+
   res.json({
     parametros: { municipio, ano, mes },
     qualidadeDados: {
       registrosRecebidos: dadosBrutos.length,
       registrosAnalisados: despesas.length,
       valoresInvalidos,
+      classificacao,
     },
-    ...executarAuditoria(despesas),
+    ...executarAuditoria(despesas, { classificacoesPorCnpj }),
     despesas,
   });
 });
