@@ -1,4 +1,5 @@
 import { converterMoedaBR } from './numeros.js';
+import { decodificarEntidadesHtml } from './texto.js';
 
 /**
  * NORMALIZADOR DE DADOS (ETL)
@@ -48,11 +49,11 @@ export const normalizarDespesas = (dadosBrutos) => {
     if (eventoNormalizado.includes('Pago')) eventoNormalizado = 'Pago';
 
     return {
-      orgao: registro.orgao || 'Não informado',
+      orgao: decodificarEntidadesHtml(registro.orgao) || 'Não informado',
       evento: eventoNormalizado,
       documento: registro.nr_empenho || 'Sem documento',
       fornecedorId: fornecedorIdLimpo,
-      fornecedorNome: registro.nm_fornecedor || 'Fornecedor não identificado',
+      fornecedorNome: decodificarEntidadesHtml(registro.nm_fornecedor) || 'Fornecedor não identificado',
       ehPessoaJuridica,
       data: registro.dt_emissao_despesa || '',
       valor: valorTratado,
