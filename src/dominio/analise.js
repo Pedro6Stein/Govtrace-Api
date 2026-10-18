@@ -121,32 +121,35 @@ import { ENTIDADES_IGNORADAS, PARAMETROS_ANALISE, IDS_BANCOS_GOVERNO, NOMES_IGNO
  * renderização no painel amigável do cidadão.
  *
  * Prioridade de classificação (O(1) por despesa):
- *   1. Categoria oficial do CNPJ (CNAE da Receita → divisão do IBGE)
- *   2. Fallback: Regex (Pessoa Física, CNPJ sem resposta da API, sem CNPJ)
+ *   1. Área do CNAE oficial do CNPJ (Receita → tabelaCnaeAreas.js)
+ *   2. Fallback: Regex (Pessoa Física, CNAE de atividade mista, CNPJ sem
+ *      resposta da API, sem CNPJ)
  *
- * Cada item informa `origem` ('cnae' | 'estimativa') para a interface
- * distinguir dado oficial de estimativa.
+ * Uma mesma área recebe dinheiro das duas fontes (ex.: Saúde = Santa Casa
+ * via CNAE + farmácia sem CNPJ via Regex). Por isso cada item informa
+ * `percentualOficial`: quanto do valor daquela área veio do CNAE oficial.
  */
-export const calcularDistribuicaoPorCategoria = (despesas, categoriasPorCnpj = new Map()) => {
-  const categorias = new Map(); // nome → { valor, origem }
+export const calcularDistribuicaoPorCategoria = (despesas, classificacoesPorCnpj = new Map()) => {
+  const categorias = new Map(); // nome → { valor, valorOficial }
   let totalMapeado = 0;
 
   for (const despesa of despesas) {
-    const oficial = categoriasPorCnpj.get(despesa.fornecedorId);
+    const oficial = classificacoesPorCnpj.get(despesa.fornecedorId)?.area;
     // fornecedorId no fallback: sem ele, o Regex classificava CNPJs como Pessoa Física pelo nome
     const nome = oficial ?? categorizarDespesa(despesa.orgao, despesa.fornecedorNome, despesa.fornecedorId);
 
-    const atual = categorias.get(nome);
-    if (atual) atual.valor += despesa.valor;
-    else categorias.set(nome, { valor: despesa.valor, origem: oficial ? 'cnae' : 'estimativa' });
+    const atual = categorias.get(nome) ?? { valor: 0, valorOficial: 0 };
+    atual.valor += despesa.valor;
+    if (oficial) atual.valorOficial += despesa.valor;
+    categorias.set(nome, atual);
     totalMapeado += despesa.valor;
   }
 
   // Converte para array, calcula o % de cada categoria e ordena da maior para a menor
-  return Array.from(categorias, ([nome, { valor, origem }]) => ({
+  return Array.from(categorias, ([nome, { valor, valorOficial }]) => ({
     nome,
     valor,
     percentual: calcularPercentual(valor, totalMapeado),
-    origem,
+    percentualOficial: calcularPercentual(valorOficial, valor),
   })).sort((a, b) => b.valor - a.valor);
 };

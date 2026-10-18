@@ -1,20 +1,25 @@
 import { PARAMETROS_CLASSIFICACAO } from './configuracoes.js';
 import { calcularPercentual } from './numeros.js';
+import { areaDoCnae } from './tabelaCnaeAreas.js';
 
 /**
- * Classificador inteligente: CNPJ → CNAE (Receita Federal) → divisão IBGE.
+ * Classificador inteligente: CNPJ → CNAE (Receita Federal) → área pública.
  *
  * Domínio puro: não importa axios nem serviços. As consultas externas chegam
  * por injeção de dependência (`servicos`), o que permite testar com dublês
  * sem rede e trocar a fonte de dados sem tocar nesta regra.
  *
  * Estratégia:
- *  1. CNPJs únicos (Set/Map), ordenados pelo valor recebido — poucos
+ *  1. CNPJs únicos (Map), ordenados pelo valor recebido — poucos
  *     fornecedores concentram quase todo o dinheiro (Pareto).
  *  2. Promise.allSettled sobre a lista ordenada; o limitador do serviço
  *     executa em ordem (FIFO), então os maiores valores resolvem primeiro.
  *  3. Promise.race com um prazo: devolve o que ficou pronto. O restante
  *     segue em segundo plano aquecendo o cache para a próxima análise.
+ *
+ * A ÁREA vem da tabela de referência (tabelaCnaeAreas.js) e depende só do
+ * CNAE. A descrição do IBGE é detalhe de auditoria: se o IBGE falhar, a
+ * área continua sendo decidida.
  */
 
 const CNPJ_VALIDO = /^\d{14}$/;
@@ -39,7 +44,10 @@ export const listarCnpjsPorRelevancia = (despesas) => {
  * @param {object} servicos  { buscarCnaeFiscal(cnpj), buscarDescricaoDivisaoCnae(divisao) }
  *                           — ambos resolvem string | null e nunca rejeitam
  * @param {object} [opcoes]  { orcamentoMs, maxCnpjs }
- * @returns {Promise<{ categoriasPorCnpj: Map<string,string>, estatisticas: object }>}
+ * @returns {Promise<{ classificacoesPorCnpj: Map<string, Classificacao>, estatisticas: object }>}
+ *
+ * Classificacao = { cnae: "4744099", divisao: "47", atividade: "Comércio varejista" | null,
+ *                   area: "Infraestrutura, Obras e Urbanismo" | null (atividade mista) }
  */
 export const enriquecerDespesasComCnae = async (despesas, servicos, opcoes = {}) => {
   const {
@@ -50,13 +58,14 @@ export const enriquecerDespesasComCnae = async (despesas, servicos, opcoes = {})
   const inicio = Date.now();
   const { cnpjs, valorPorCnpj } = listarCnpjsPorRelevancia(despesas);
   const selecionados = cnpjs.slice(0, maxCnpjs);
-  const categorias = new Map();
+  const classificacoes = new Map();
 
   const classificar = async (cnpj) => {
-    const divisao = extrairDivisaoCnae(await servicos.buscarCnaeFiscal(cnpj));
+    const cnae = await servicos.buscarCnaeFiscal(cnpj);
+    const divisao = extrairDivisaoCnae(cnae);
     if (!divisao) return;
-    const categoria = await servicos.buscarDescricaoDivisaoCnae(divisao);
-    if (categoria) categorias.set(cnpj, categoria);
+    const atividade = await servicos.buscarDescricaoDivisaoCnae(divisao);
+    classificacoes.set(cnpj, { cnae, divisao, atividade, area: areaDoCnae(cnae) });
   };
 
   // allSettled: uma falha isolada nunca derruba as demais (nem a análise)
@@ -67,23 +76,28 @@ export const enriquecerDespesasComCnae = async (despesas, servicos, opcoes = {})
   const concluiuNoPrazo = await Promise.race([todas.then(() => true), prazo.then(() => false)]);
   clearTimeout(temporizador);
 
-  // Cópia: as consultas em segundo plano continuam escrevendo em `categorias`
-  const categoriasPorCnpj = new Map(categorias);
+  // Cópia: as consultas em segundo plano continuam escrevendo em `classificacoes`
+  const classificacoesPorCnpj = new Map(classificacoes);
 
   let valorPj = 0;
-  let valorClassificado = 0;
+  let valorComArea = 0;
+  let cnpjsComArea = 0;
   for (const [cnpj, valor] of valorPorCnpj) {
     valorPj += valor;
-    if (categoriasPorCnpj.has(cnpj)) valorClassificado += valor;
+    if (classificacoesPorCnpj.get(cnpj)?.area) {
+      valorComArea += valor;
+      cnpjsComArea++;
+    }
   }
 
   return {
-    categoriasPorCnpj,
+    classificacoesPorCnpj,
     estatisticas: {
       cnpjsUnicos: cnpjs.length,
       cnpjsConsultados: selecionados.length,
-      cnpjsClassificados: categoriasPorCnpj.size,
-      percentualValorClassificado: calcularPercentual(valorClassificado, valorPj),
+      cnpjsComCnae: classificacoesPorCnpj.size,
+      cnpjsComArea,                 // CNAE com área definida (os demais são "mistos" → Regex)
+      percentualValorClassificado: calcularPercentual(valorComArea, valorPj),
       concluiuNoPrazo,
       tempoMs: Date.now() - inicio,
     },

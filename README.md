@@ -138,13 +138,21 @@ Participação dos **5 maiores fornecedores** no total do período, um índice c
 
 ## 🏛️ Classificação oficial por CNAE
 
-Para responder "para onde foi o dinheiro?", a API classifica cada fornecedor pela **atividade econômica oficial**: o CNPJ é consultado na Receita Federal (via [BrasilAPI](https://brasilapi.com.br/)), o CNAE fiscal é reduzido à **divisão** (2 primeiros dígitos) e o nome da divisão vem da [API de CNAE do IBGE](https://servicodados.ibge.gov.br/api/docs/cnae).
+Para responder "para onde foi o dinheiro?", a API classifica cada fornecedor pela **atividade econômica oficial**: o CNPJ é consultado na Receita Federal (via [BrasilAPI](https://brasilapi.com.br/)), que devolve o CNAE fiscal (7 dígitos). Uma **tabela de referência** traduz o CNAE em uma das **11 áreas de política pública** do GovTrace. O nome oficial da atividade vem da [API de CNAE do IBGE](https://servicodados.ibge.gov.br/api/docs/cnae) e fica no ranking para auditoria.
 
 ```
-CNPJ 08.183.516/0001-20 → CNAE 4744-0/99 → divisão 47 → "Comércio varejista"
+CNPJ 08.183.516/0001-20 → CNAE 4744-0/99 → "Infraestrutura, Obras e Urbanismo"
+                                        └→ atividade (IBGE): "Comércio varejista"
 ```
 
-Pessoas físicas, CNPJs sem resposta e despesas sem documento caem no **motor Regex** (abaixo) como fallback. Cada categoria da resposta informa a sua `origem`: `"cnae"` (oficial) ou `"estimativa"` (Regex).
+### Por que uma tabela de referência?
+O CNAE diz **o que a empresa faz**; o cidadão quer saber **em que área pública** o dinheiro foi usado. A ponte entre os dois é uma decisão metodológica, e por isso fica explícita e auditável em [`src/dominio/tabelaCnaeAreas.js`](./src/dominio/tabelaCnaeAreas.js), com o motivo de cada escolha não óbvia comentado ao lado.
+
+- **Do mais específico para o mais geral:** subclasse (7 dígitos) → classe (4) → divisão (2). Ex.: o comércio (divisões 45–47) é resolvido pela classe (*farmácia → Saúde*, *material de construção → Infraestrutura*), e a classe 4647 pela subclasse (*livros → Educação*, *papelaria → Administração*).
+- **Cobertura total:** as 87 divisões oficiais têm entrada. Um teste automatizado baixa a lista do IBGE e falha se alguma ficar de fora.
+- **Atividades mistas** (ex.: "fabricação de máquinas", "mercadorias em geral") não forçam uma área: caem no motor Regex, que decide pelo nome do fornecedor. **Não existe a categoria "Outras".**
+
+**Resultado em Bragança Paulista (06/2026):** 94,4% do dinheiro classificado pelo CNAE oficial; 5,6% pelo Regex (incluindo 1,9% pagos a pessoas físicas, que não têm CNAE). Cada área da resposta informa `percentualOficial`: quanto do seu valor veio do CNAE.
 
 **Engenharia para não depender de serviços gratuitos:**
 
@@ -182,7 +190,7 @@ Medido com dados reais de **Bragança Paulista, junho/2026** (Node.js 24, execu�
 | Categorização com memoization (cache quente) | **~7,6 ms** |
 | **Auditoria completa** (8 motores, mediana de 10 execuções) | **~59 ms** |
 | Tempo total da requisição (incluindo o TCE-SP) | **~2 s**, dominado pela rede do TCE-SP |
-| Classificação oficial, 1ª consulta do município | **~2,2 s**, 96,9% do valor classificado por CNAE |
+| Classificação oficial, 1ª consulta do município | **~1,2 s**, 94,4% do dinheiro classificado por CNAE |
 | Classificação oficial, consultas seguintes (cache) | **~20 ms** |
 
 Todos os motores são **lineares, O(n)**: percorrem as despesas com `Map`s de agregação, sem laços aninhados sobre o conjunto de dados.
@@ -217,11 +225,11 @@ curl "https://govtrace-api.onrender.com/api/analise?municipio=Bragan%C3%A7a%20Pa
   "parametros":   { "municipio": "Bragança Paulista", "ano": "2026", "mes": "6" },
   "qualidadeDados": {
     "registrosRecebidos": 4534, "registrosAnalisados": 4534, "valoresInvalidos": 0,
-    "classificacao": { "cnpjsUnicos": 482, "cnpjsConsultados": 300, "cnpjsClassificados": 100,
-                       "percentualValorClassificado": 96.91, "concluiuNoPrazo": true, "tempoMs": 2189 }
+    "classificacao": { "cnpjsUnicos": 482, "cnpjsConsultados": 300, "cnpjsComCnae": 100, "cnpjsComArea": 98,
+                       "percentualValorClassificado": 96.77, "concluiuNoPrazo": true, "tempoMs": 1159 }
   },
   "totais":       { "valorTotal": 292226206.17, "totalRegistros": 4534, "maiorPagamento": { /* ... */ } },
-  "distribuicao": [ { "nome": "Administração pública, defesa e seguridade social", "valor": 116678839.01, "percentual": 39.93, "origem": "cnae" } ],
+  "distribuicao": [ { "nome": "Saúde e Medicamentos", "valor": 40976136.96, "percentual": 14.02, "percentualOficial": 97.51 } ],
   "ranking":      [ { "id": "...", "nome": "...", "valorTotal": 20385000.69, "quantidade": 21 } ],
   "insights": {
     "concentracao":  { "alerta": false, "percentual": 23.02, "top5": [ /* ... */ ], "insightEducativo": "..." },
@@ -329,6 +337,7 @@ CORS_ORIGIN=https://gov-trace.vercel.app,http://localhost:5173
 | Comando | Descrição |
 |---|---|
 | `npm run dev` | Desenvolvimento com `node --watch` |
+| `npm test` | Testes automatizados (`node --test`, sem dependências) |
 | `npm start` | Produção |
 
 ### Estrutura de pastas
@@ -336,6 +345,9 @@ CORS_ORIGIN=https://gov-trace.vercel.app,http://localhost:5173
 ```
 Govtrace-Api/
 ├── server.js                  # Bootstrap: lê a PORT e sobe o servidor
+├── test/                      # npm test (node --test, sem dependências)
+│   ├── tabelaCnaeAreas.test.js          # Precedência, integridade e cobertura contra o IBGE
+│   └── classificadorInteligente.test.js # Prazo, prioridade, fallback, percentualOficial
 └── src/
     ├── app.js                 # Express: CORS, JSON, rotas, tratamento de erros
     ├── rotas/
@@ -352,7 +364,8 @@ Govtrace-Api/
         ├── configuracoes.js   # Parâmetros dos motores e listas de exclusão
         ├── numeros.js         # Moeda brasileira e percentuais
         ├── normalizacao.js    # ETL do JSON bruto do TCE-SP
-        ├── classificadorInteligente.js # CNPJ → CNAE → categoria IBGE (com prazo)
+        ├── classificadorInteligente.js # CNPJ → CNAE → área (com prazo)
+        ├── tabelaCnaeAreas.js # Tabela de referência: CNAE → área de política pública
         ├── regrasCategorias.js# Fallback: categorização via Regex + Memoization
         ├── analise.js         # Totais, ranking, CR5, distribuição
         ├── analiseAvancada.js # Z-Score, Benford, Fracionamento, Monopólio
@@ -378,7 +391,8 @@ Govtrace-Api/
 - [ ] Compressão gzip/brotli das respostas (o payload típico tem cerca de 1 MB)
 - [x] Classificação oficial por CNAE (Receita Federal + IBGE) com fallback Regex
 - [ ] Cache persistente (Redis/banco) para a classificação sobreviver a reinícios do servidor
-- [ ] Testes automatizados dos motores (unitários) e das rotas (integração)
+- [x] Testes automatizados do classificador e da tabela CNAE (`npm test`)
+- [ ] Testes dos demais motores (unitários) e das rotas (integração)
 - [ ] Documentação OpenAPI/Swagger
 - [ ] Novos motores: sazonalidade, fornecedores recém-criados, análise temporal multi-mês
 - [ ] Rate limiting e observabilidade (logs estruturados, métricas)

@@ -58,7 +58,7 @@ router.get('/', async (req, res) => {
   }
 
   // Classificação oficial (Receita/IBGE) com prazo — nunca lança erro
-  const { categoriasPorCnpj, estatisticas: classificacao } =
+  const { classificacoesPorCnpj, estatisticas: classificacao } =
     await enriquecerDespesasComCnae(despesas, servicosCnae);
 
   res.json({
@@ -69,7 +69,7 @@ router.get('/', async (req, res) => {
       valoresInvalidos,
       classificacao,
     },
-    ...executarAuditoria(despesas, { categoriasPorCnpj }),
+    ...executarAuditoria(despesas, { classificacoesPorCnpj }),
     despesas,
   });
 });
