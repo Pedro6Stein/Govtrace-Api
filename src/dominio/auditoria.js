@@ -10,6 +10,7 @@ import {
   detectarFracionamento,
   detectarMonopolioPorOrgao,
 } from './analiseAvancada.js';
+import { apenasPagamentos, umPorEmpenho } from './etapas.js';
 
 /**
  * Orquestrador dos motores de auditoria.
@@ -55,29 +56,38 @@ const INSIGHTS_PADRAO = {
 export const executarAuditoria = (despesas, { classificacoesPorCnpj = new Map() } = {}) => {
   if (!despesas.length) {
     return {
-      totais: { valorTotal: 0, totalRegistros: 0 },
+      totais: {
+        valorTotal: 0,
+        porEtapa: { empenhado: 0, liquidado: 0, pago: 0, anulado: 0 },
+        totalRegistros: 0,
+        totalEmpenhos: 0,
+      },
       distribuicao: [],
       ranking: [],
       insights: null,
     };
   }
 
-  const totais = calcularTotaisGerais(despesas);
-  const distribuicao = calcularDistribuicaoPorCategoria(despesas, classificacoesPorCnpj);
+  // Uma base por pergunta — nunca somar etapas do mesmo empenho (ver etapas.js)
+  const pagamentos = apenasPagamentos(despesas);   // quem recebeu / para onde foi
+  const documentos = umPorEmpenho(despesas);       // motores: cada empenho uma vez
 
-  // Cada fornecedor carrega sua atividade oficial (CNAE) para auditoria
-  const ranking = gerarRankingFornecedores(despesas).map((fornecedor) => {
+  const totais = calcularTotaisGerais(despesas);
+  const distribuicao = calcularDistribuicaoPorCategoria(pagamentos, classificacoesPorCnpj);
+
+  // Ranking pelo valor PAGO; cada fornecedor carrega sua atividade oficial (CNAE)
+  const ranking = gerarRankingFornecedores(pagamentos).map((fornecedor) => {
     const classificacao = classificacoesPorCnpj.get(fornecedor.id);
     return classificacao ? { ...fornecedor, atividade: classificacao } : fornecedor;
   });
 
   const insights = {
     concentracao:
-      gerarInsightConcentracao(ranking, totais.valorTotal) || INSIGHTS_PADRAO.concentracao,
-    zScore: detectarOutliersZScore(despesas) || INSIGHTS_PADRAO.zScore,
-    benford: analisarLeiBenford(despesas) || INSIGHTS_PADRAO.benford,
-    fracionamento: detectarFracionamento(despesas) || INSIGHTS_PADRAO.fracionamento,
-    monopolio: detectarMonopolioPorOrgao(despesas) || INSIGHTS_PADRAO.monopolio,
+      gerarInsightConcentracao(ranking, totais.porEtapa.pago) || INSIGHTS_PADRAO.concentracao,
+    zScore: detectarOutliersZScore(documentos) || INSIGHTS_PADRAO.zScore,
+    benford: analisarLeiBenford(documentos) || INSIGHTS_PADRAO.benford,
+    fracionamento: detectarFracionamento(documentos) || INSIGHTS_PADRAO.fracionamento,
+    monopolio: detectarMonopolioPorOrgao(documentos) || INSIGHTS_PADRAO.monopolio,
   };
 
   return { totais, distribuicao, ranking, insights };

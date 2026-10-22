@@ -1,5 +1,6 @@
 import { categorizarDespesa } from './regrasCategorias.js';
 import { calcularPercentual } from './numeros.js';
+import { somarPorEtapa, umPorEmpenho } from './etapas.js';
 
 /**
  * GOVTRACE - MOTOR DE ANÁLISE TÉCNICA E ESTATÍSTICA
@@ -20,22 +21,28 @@ import { ENTIDADES_IGNORADAS, PARAMETROS_ANALISE, IDS_BANCOS_GOVERNO, NOMES_IGNO
   
   /**
    * Função: calcularTotaisGerais
-   * Complexidade: O(n) - Varre os dados apenas uma vez.
-   * Objetivo: Calcular o volume financeiro do período e o maior registro unitário.
+   * Objetivo: o volume financeiro do período, ETAPA POR ETAPA.
+   *
+   * Cada empenho aparece uma vez por etapa nos dados do TCE-SP; somar todas
+   * as linhas contaria o mesmo dinheiro até três vezes (ver etapas.js).
+   *   valorTotal      — total EMPENHADO no período (empenhos + reforços − anulações)
+   *   porEtapa        — { empenhado, liquidado, pago, anulado }
+   *   maiorPagamento  — o maior documento do período (cada empenho contado uma vez)
+   *   totalRegistros  — linhas publicadas pelo TCE-SP (uma por etapa)
+   *   totalEmpenhos   — documentos distintos
    */
   export const calcularTotaisGerais = (despesas) => {
-    let valorTotal = 0;
-    let maiorPagamento = { valor: 0 };
-  
-    for (const despesa of despesas) {
-      valorTotal += despesa.valor;
-      
-      if (despesa.valor > maiorPagamento.valor) {
-        maiorPagamento = despesa;
-      }
-    }
-  
-    return { valorTotal, maiorPagamento, totalRegistros: despesas.length };
+    const porEtapa = somarPorEtapa(despesas);
+    const documentos = umPorEmpenho(despesas);
+    const maiorPagamento = documentos.reduce((maior, d) => (d.valor > maior.valor ? d : maior), { valor: 0 });
+
+    return {
+      valorTotal: porEtapa.empenhado,
+      porEtapa,
+      maiorPagamento,
+      totalRegistros: despesas.length,
+      totalEmpenhos: documentos.length,
+    };
   };
   
   /**
@@ -102,14 +109,14 @@ import { ENTIDADES_IGNORADAS, PARAMETROS_ANALISE, IDS_BANCOS_GOVERNO, NOMES_IGNO
       alerta,
       percentual,
       somaTop5,
-      mensagemPrincipal: alerta 
-        ? `Alta concentração: os 5 maiores fornecedores representam ${percentual.toFixed(1)}% de todo o valor financeiro do período.` 
-        : `Distribuição equilibrada: o gasto está pulverizado entre vários fornecedores.`,
-      
-      // O grande diferencial do TCC: A explicação didática e neutra.
+      mensagemPrincipal: alerta
+        ? `Participação elevada: os 5 maiores fornecedores receberam ${percentual.toFixed(1)}% de tudo o que foi pago no período.`
+        : `Distribuição equilibrada: os pagamentos se dividiram entre vários fornecedores.`,
+
+      // Explicação didática e neutra (base: valores PAGOS no período)
       insightEducativo: alerta
-        ? `O que isso significa? De cada R$ 100 registrados neste mês, R$ ${reaisApenasTop5} foram direcionados para apenas 5 empresas. Matematicamente, isso indica que o município está altamente dependente de poucos parceiros comerciais. Isso não é uma acusação de fraude, mas um alerta estatístico para a competitividade.`
-        : `O que isso significa? O dinheiro público girou de forma mais equilibrada, chegando a um número maior de empresas na economia local ou regional.`,
+        ? `O que isso significa? De cada R$ 100 pagos neste mês, R$ ${reaisApenasTop5} foram para apenas 5 fornecedores. Uma parte grande do dinheiro ficou com poucos parceiros comerciais. É um destaque estatístico, não um juízo de valor.`
+        : `O que isso significa? De cada R$ 100 pagos neste mês, R$ ${reaisApenasTop5} foram para os 5 maiores fornecedores: o dinheiro chegou a um número maior de empresas.`,
       
       top5
     };
